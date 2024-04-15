@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, io};
 use std::fmt::Formatter;
 use reqwest::Response;
 use serde::Deserialize;
@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use log::{debug, info};
+use log::{debug, error};
 use thiserror::Error;
 
 // md parsing constants
@@ -131,12 +131,16 @@ impl ParsedNote {
 #[derive(Error, Debug)]
 pub enum ParseError {
     // TODO: improve messages
-    #[error("Invalid state change")]
-    InvalidStateChange,
+    #[error("Invalid state change on line {0}")]
+    InvalidStateChange(u128),
+    #[error("Unexpected parsing end")] // TODO: make this better
+    UnexpectedParsingEnd,
     #[error("Invalid metadata: {0}")]
     InvalidMetadata(String),
     #[error("Unable to determine which deck card belongs to")]
     MissingDeck,
+    #[error("IO error on file {0}")]
+    IOError(#[from] io::Error),
 }
 
 #[derive(Clone, Debug)]
@@ -174,7 +178,7 @@ impl ParseState {
     pub fn reset(&self) -> Result<Self, ParseError> {
         match self {
             ParseState::InAnswer => Ok(ParseState::Start),
-            _ => Err(ParseError::InvalidStateChange),
+            _ => Err(ParseError::UnexpectedParsingEnd),
         }
     }
 }
@@ -197,6 +201,7 @@ struct Parser {
     question: String, // internal state of the current question being parsed
     answer: String,   // internal state of the current answer being parsed
     parsed: Vec<ParsedNote>, // the results that will be retrieved in `finalize()`
+    line_num: u128, // counter to let us keep track of the line number in a file
 }
 
 impl Parser {
@@ -211,6 +216,7 @@ impl Parser {
             question: String::new(),
             answer: String::new(),
             parsed: Vec::new(),
+            line_num: 0,
         }
     }
 
@@ -224,7 +230,10 @@ impl Parser {
             &self.answer_token,
             self.answer_token_len,
         );
-        self.parse(event_type)
+        debug!("Parsing line: {}", event);
+        let result = self.parse(event_type);
+        self.line_num += 1;
+        result
     }
 
     fn parse_event_type<'a>(
@@ -279,7 +288,7 @@ impl Parser {
                 self.state = self.state.next();
                 Ok(())
             }
-            _ => Err(ParseError::InvalidStateChange),
+            _ => Err(ParseError::InvalidStateChange(self.line_num)),
         }
     }
 
@@ -296,7 +305,7 @@ impl Parser {
                 self.state = self.state.next();
                 Ok(())
             }
-            _ => Err(ParseError::InvalidStateChange),
+            _ => Err(ParseError::InvalidStateChange(self.line_num)),
         }
     }
 
@@ -307,7 +316,7 @@ impl Parser {
                 self.state = self.state.next();
                 Ok(())
             }
-            _ => Err(ParseError::InvalidStateChange),
+            _ => Err(ParseError::InvalidStateChange(self.line_num)),
         }
     }
 
@@ -340,7 +349,7 @@ impl Parser {
 
                 Ok(())
             }
-            _ => Err(ParseError::InvalidStateChange),
+            _ => Err(ParseError::InvalidStateChange(self.line_num)),
         }
     }
 
@@ -357,7 +366,7 @@ impl Parser {
     fn finalize(&mut self) -> Result<Vec<ParsedNote>, ParseError> {
         match &self.state {
             ParseState::InAnswer => self.finalize_note()?,
-            _ => return Err(ParseError::InvalidStateChange),
+            _ => return Err(ParseError::InvalidStateChange(self.line_num)),
         }
 
         self.state = self.state.reset()?;
@@ -388,16 +397,24 @@ impl AnkiMarkdownHandler {
     }
 
     fn parse_file(&mut self, path: &PathBuf) -> Result<Vec<ParsedNote>, ParseError> {
-        let file = File::open(path).unwrap();
+        let file = File::open(path)?;
         let reader = BufReader::new(file);
 
         for line in reader.lines() {
-            let event = line.unwrap();
+            let event = line?;
             self.parser.handle_event(&event)?;
         }
 
         self.parser.finalize()
     }
+}
+
+#[derive(Error, Debug)]
+pub enum AnkiSyncError {
+    #[error("Received API error: {0}")]
+    ApiError(#[from] ApiError),
+    #[error("Received parsing error: {0}")]
+    ParseError(#[from] ParseError),
 }
 
 pub struct AnkiSync {
@@ -413,11 +430,9 @@ impl AnkiSync {
         }
     }
 
-    pub async fn sync_file(&mut self, file: &PathBuf) -> Result<(), ApiError> {
-        info!("Syncing file {:?}...", file);
-        let parsed_notes = self.md_handler.parse_file(file).unwrap();
-        let result = self.anki_client.add_notes(parsed_notes).await;
-        info!("Done!");
-        result
+    pub async fn sync_file(&mut self, file: &PathBuf) -> Result<(), AnkiSyncError> {
+        let parsed_notes = self.md_handler.parse_file(file)?;
+        self.anki_client.add_notes(parsed_notes).await?;
+        Ok(())
     }
 }

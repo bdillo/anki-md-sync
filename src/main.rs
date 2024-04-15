@@ -2,7 +2,7 @@ use anki_md_sync::AnkiSync;
 use clap::{Arg, ArgMatches, command};
 use std::path::PathBuf;
 use env_logger::Builder;
-use log::LevelFilter;
+use log::{error, info, LevelFilter};
 
 const FILES_ARG: &str = "files";
 const DEBUG_ARG: &str = "debug";
@@ -24,7 +24,11 @@ async fn main() {
     let files = args.get_many::<PathBuf>(&FILES_ARG)
         .unwrap();
     for f in files {
-        anki_sync.sync_file(f).await.unwrap();
+        info!("Syncing file {:?}...", f);
+        match anki_sync.sync_file(f).await {
+            Ok(_) => info!("Done syncing file {:?}!", f),
+            Err(e) => error!("Error while syncing: {}", e),
+        }
     }
 }
 
