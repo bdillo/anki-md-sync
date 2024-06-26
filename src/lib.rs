@@ -1,12 +1,12 @@
-use std::{fmt, io};
-use std::fmt::Formatter;
+use log::{debug, error};
 use reqwest::Response;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::fmt::Formatter;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use log::{debug, error};
+use std::{fmt, io};
 use thiserror::Error;
 
 // md parsing constants
@@ -56,6 +56,12 @@ struct AnkiConnectClient {
     client: reqwest::Client,
 }
 
+impl Default for AnkiConnectClient {
+    fn default() -> Self {
+        Self::new("http://localhost:8765")
+    }
+}
+
 impl AnkiConnectClient {
     pub fn new(endpoint: &str) -> Self {
         Self {
@@ -64,17 +70,9 @@ impl AnkiConnectClient {
         }
     }
 
-    pub fn default() -> Self {
-        Self::new("http://localhost:8765")
-    }
-
     pub async fn post(&self, body: &Value) -> Result<Response, reqwest::Error> {
         debug!("Sending post with body: {:?}", body);
-        let response = self.client
-            .post(&self.endpoint)
-            .json(body)
-            .send()
-            .await;
+        let response = self.client.post(&self.endpoint).json(body).send().await;
         debug!("Received response: {:?}", response);
         response
     }
@@ -91,7 +89,7 @@ impl AnkiConnectClient {
 
         let response = self.post(&body).await?;
         let add_notes_response = response.json::<AddNotesResponse>().await?;
-        
+
         match add_notes_response.error {
             Some(e) => Err(ApiError::ResponseError(e)),
             None => {
@@ -184,11 +182,11 @@ impl ParseState {
 }
 
 enum ParseEventType<'a> {
-    MetadataDelimiter, // metadata delimiter, i.e. '---'
+    MetadataDelimiter,      // metadata delimiter, i.e. '---'
     QuestionStart(&'a str), // start of a question, default is 'Q: '
-    AnswerStart(&'a str), // start of an answer, default is 'A: '
-    Text(&'a str), // text, could be metadata, answer, or question
-    Empty, // an empty string
+    AnswerStart(&'a str),   // start of an answer, default is 'A: '
+    Text(&'a str),          // text, could be metadata, answer, or question
+    Empty,                  // an empty string
 }
 
 struct Parser {
@@ -198,10 +196,10 @@ struct Parser {
     answer_token: String,      // token used to delimit answer strings
     answer_token_len: usize,   // size of the answer token used
     deck: Option<Deck>, // current deck we are modifying, from the metadata at the top of the file
-    question: String, // internal state of the current question being parsed
-    answer: String,   // internal state of the current answer being parsed
+    question: String,   // internal state of the current question being parsed
+    answer: String,     // internal state of the current answer being parsed
     parsed: Vec<ParsedNote>, // the results that will be retrieved in `finalize()`
-    line_num: u128, // counter to let us keep track of the line number in a file
+    line_num: u128,     // counter to let us keep track of the line number in a file
 }
 
 impl Parser {
@@ -374,7 +372,7 @@ impl Parser {
 
         let results = self.parsed.clone();
         self.parsed.clear();
-        
+
         debug!("Found notes: {:?}", results);
 
         Ok(results)
@@ -385,15 +383,17 @@ struct AnkiMarkdownHandler {
     parser: Parser,
 }
 
+impl Default for AnkiMarkdownHandler {
+    fn default() -> Self {
+        Self::new("Q: ", "A: ")
+    }
+}
+
 impl AnkiMarkdownHandler {
     fn new(question_token: &str, answer_token: &str) -> Self {
         Self {
             parser: Parser::new(question_token, answer_token),
         }
-    }
-
-    fn default() -> Self {
-        Self::new("Q: ", "A: ")
     }
 
     fn parse_file(&mut self, path: &PathBuf) -> Result<Vec<ParsedNote>, ParseError> {
@@ -433,6 +433,23 @@ impl AnkiSync {
     pub async fn sync_file(&mut self, file: &PathBuf) -> Result<(), AnkiSyncError> {
         let parsed_notes = self.md_handler.parse_file(file)?;
         self.anki_client.add_notes(parsed_notes).await?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use crate::{AnkiMarkdownHandler, ParseError};
+
+    #[test]
+    fn test_parse() -> Result<(), ParseError> {
+        let file = PathBuf::from("test/notes.md");
+        let mut md_handler = AnkiMarkdownHandler::default();
+
+        let parsed = md_handler.parse_file(&file)?;
+
         Ok(())
     }
 }
