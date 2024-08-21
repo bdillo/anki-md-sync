@@ -51,6 +51,7 @@ struct AddNotesResponse {
 }
 
 /// Small client for using anki-connect's APIs
+#[derive(Debug, Clone)]
 struct AnkiConnectClient {
     endpoint: String,
     client: reqwest::Client,
@@ -181,6 +182,7 @@ impl ParseState {
     }
 }
 
+#[derive(Debug, Clone)]
 enum ParseEventType<'a> {
     MetadataDelimiter,      // metadata delimiter, i.e. '---'
     QuestionStart(&'a str), // start of a question, default is 'Q: '
@@ -189,6 +191,7 @@ enum ParseEventType<'a> {
     Empty,                  // an empty string
 }
 
+#[derive(Debug, Clone)]
 struct Parser {
     state: ParseState,         // internal parser state
     question_token: String,    // token used to delimit question strings
@@ -243,9 +246,9 @@ impl Parser {
     ) -> ParseEventType<'a> {
         return if event.starts_with(METADATA_DELIM) {
             ParseEventType::MetadataDelimiter
-        } else if event.starts_with(&question_token) {
+        } else if event.starts_with(question_token) {
             ParseEventType::QuestionStart(&event[question_token_len..]) // remove token
-        } else if event.starts_with(&answer_token) {
+        } else if event.starts_with(answer_token) {
             ParseEventType::AnswerStart(&event[answer_token_len..]) // remove token
         } else if event.is_empty() {
             ParseEventType::Empty
@@ -379,6 +382,7 @@ impl Parser {
     }
 }
 
+#[derive(Debug, Clone)]
 struct AnkiMarkdownHandler {
     parser: Parser,
 }
@@ -417,19 +421,13 @@ pub enum AnkiSyncError {
     ParseError(#[from] ParseError),
 }
 
+#[derive(Default, Debug, Clone)]
 pub struct AnkiSync {
     anki_client: AnkiConnectClient,
     md_handler: AnkiMarkdownHandler,
 }
 
 impl AnkiSync {
-    pub fn new() -> Self {
-        Self {
-            anki_client: AnkiConnectClient::default(),
-            md_handler: AnkiMarkdownHandler::default(),
-        }
-    }
-
     pub async fn sync_file(&mut self, file: &PathBuf) -> Result<(), AnkiSyncError> {
         let parsed_notes = self.md_handler.parse_file(file)?;
         self.anki_client.add_notes(parsed_notes).await?;
@@ -448,7 +446,7 @@ mod tests {
         let file = PathBuf::from("test/notes.md");
         let mut md_handler = AnkiMarkdownHandler::default();
 
-        let parsed = md_handler.parse_file(&file)?;
+        let _ = md_handler.parse_file(&file)?;
 
         Ok(())
     }

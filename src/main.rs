@@ -1,8 +1,8 @@
 use anki_md_sync::AnkiSync;
-use clap::{Arg, ArgMatches, command};
-use std::path::PathBuf;
+use clap::{command, Arg, ArgMatches};
 use env_logger::Builder;
 use log::{error, info, LevelFilter};
+use std::path::PathBuf;
 
 const FILES_ARG: &str = "files";
 const DEBUG_ARG: &str = "debug";
@@ -10,19 +10,18 @@ const DEBUG_ARG: &str = "debug";
 #[tokio::main]
 async fn main() {
     let args = parse_args();
-    
+
     let mut logging_builder = Builder::new();
-    let log_level = if *args.get_one::<bool>(&DEBUG_ARG).unwrap() {
+    let log_level = if *args.get_one::<bool>(DEBUG_ARG).unwrap() {
         LevelFilter::Debug
     } else {
         LevelFilter::Info
     };
     logging_builder.filter_level(log_level).init();
 
-    let mut anki_sync = AnkiSync::new();
-    
-    let files = args.get_many::<PathBuf>(&FILES_ARG)
-        .unwrap();
+    let mut anki_sync = AnkiSync::default();
+
+    let files = args.get_many::<PathBuf>(FILES_ARG).unwrap();
     for f in files {
         info!("Syncing file {:?}...", f);
         match anki_sync.sync_file(f).await {
@@ -34,17 +33,19 @@ async fn main() {
 
 fn parse_args() -> ArgMatches {
     command!()
-        .arg(Arg::new(&FILES_ARG)
-            .short('f')
-            .value_parser(clap::value_parser!(PathBuf))
-            .num_args(0..)
-            .required(true)
-            .help("Markdown files to parse and sync into Anki")
+        .arg(
+            Arg::new(FILES_ARG)
+                .short('f')
+                .value_parser(clap::value_parser!(PathBuf))
+                .num_args(0..)
+                .required(true)
+                .help("Markdown files to parse and sync into Anki"),
         )
-        .arg(Arg::new(&DEBUG_ARG)
-            .short('d')
-            .action(clap::ArgAction::SetTrue)
-            .help("Enables debug logging")
+        .arg(
+            Arg::new(DEBUG_ARG)
+                .short('d')
+                .action(clap::ArgAction::SetTrue)
+                .help("Enables debug logging"),
         )
         .get_matches()
 }
