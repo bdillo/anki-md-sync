@@ -1,3 +1,5 @@
+pub mod config;
+
 use log::{debug, error};
 use reqwest::Response;
 use serde::Deserialize;
