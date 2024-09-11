@@ -19,6 +19,9 @@ const DECK: &str = "deck";
 // api constants
 const API_VERSION: i32 = 6;
 
+// anki connect stuff
+const DUPLICATE_ERROR_MESSAGE: &str = "cannot create note because it is a duplicate";
+
 /// Anki note models
 #[derive(Clone, Debug)]
 enum Model {
@@ -47,8 +50,9 @@ pub enum ApiError {
 
 /// addNotes response type
 #[derive(Debug, Deserialize)]
+// TODO: parse this a bit better. error can contain multiple values but we are just reading them all as a string
 struct AddNotesResponse {
-    result: Vec<Option<i64>>,
+    result: Option<Vec<Option<i64>>>,
     error: Option<String>,
 }
 
@@ -93,13 +97,14 @@ impl AnkiConnectClient {
         let response = self.post(&body).await?;
         let add_notes_response = response.json::<AddNotesResponse>().await?;
 
-        match add_notes_response.error {
-            Some(e) => Err(ApiError::ResponseError(e)),
-            None => {
-                debug!("Response: {:?}", add_notes_response.result);
-                Ok(())
+        if let Some(e) = add_notes_response.error {
+            if !e.contains(DUPLICATE_ERROR_MESSAGE) {
+                return Err(ApiError::ResponseError(e));
             }
         }
+
+        debug!("Response: {:?}", add_notes_response.result);
+        Ok(())
     }
 }
 
